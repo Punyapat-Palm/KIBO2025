@@ -116,7 +116,6 @@ public class YourService extends KiboRpcService {
 
     public class Full_process {
         public List<String> process(Mat inputImage, int callpreimg) {
-            List<String> allPredictedClasses = new ArrayList<>();
             Mat cameraM = new Mat(3, 3, CvType.CV_64F);
             cameraM.put(0, 0, api.getNavCamIntrinsics()[0]);
             Mat cameraCoeff = new Mat(1, 5, CvType.CV_64F);
@@ -128,55 +127,46 @@ public class YourService extends KiboRpcService {
             api.saveMatImage(undistort, callpreimg + "undistort.png");
             Log.i(TAG, "Undistort image size: " + undistort.size() + ", channels: " + undistort.channels());
 
-            Dictionary dictionary = Aruco.getPredefinedDictionary(Aruco.DICT_5X5_250);
-            DetectorParameters parameters = DetectorParameters.create();
-            List<Mat> corners = new ArrayList<>();
-            Mat ids = new Mat();
-            List<Mat> rejected = new ArrayList<>();
+            Log.i(TAG, "Start cropping image");
+            DocumentScanner scanner = new DocumentScanner();
 
-            // Detect markers
-            Aruco.detectMarkers(undistort, dictionary, corners, ids, parameters, rejected);
-            for (int j = 0; j < ids.rows(); j++) {
-                Log.i(TAG, "Start cropping image");
-                DocumentScanner scanner = new DocumentScanner();
+            Mat A4Crop = scanner.processDocumentWithVisualization(undistort, callpreimg);
+            api.saveMatImage(A4Crop, callpreimg + "A4Crop.png");
 
-                Mat A4Crop = scanner.processDocumentWithVisualization(undistort, callpreimg);
-                api.saveMatImage(A4Crop, callpreimg + "A4Crop.png");
+            if (!scanner.detectAruco(A4Crop)) {
+                A4Crop = ManualA4Cropper(undistort, cameraM);
+                api.saveMatImage(A4Crop, callpreimg + "ManualA4Crop.png");
+                Log.i(TAG, "[WARNING] No ArUco markers detected by DocumentScanner. Using ManualA4Cropper instead.");
+            } else {
+                A4Crop = scanner.cropRightCmRatio(A4Crop);
+            }
 
-                if (!scanner.detectAruco(A4Crop)) {
-                    A4Crop = ManualA4Cropper(undistort, cameraM);
-                    api.saveMatImage(A4Crop, callpreimg + "ManualA4Crop.png");
-                    Log.i(TAG, "[WARNING] No ArUco markers detected by DocumentScanner. Using ManualA4Cropper instead.");
-                } else {
-                    A4Crop = scanner.cropRightCmRatio(A4Crop);
-                }
+            List<Mat> croppedImages = cropObjects(A4Crop);
+            int validObjectCount = 0;
+            int landmarkCount = 0;
+            List<String> allPredictedClasses = new ArrayList<>();
 
-                List<Mat> croppedImages = cropObjects(A4Crop);
-                int validObjectCount = 0;
-                int landmarkCount = 0;
+            for (int i = 0; i < croppedImages.size(); i++) {
+                Mat croppedImage = croppedImages.get(i);
+                if (croppedImage != null && !croppedImage.empty()) {
+                    validObjectCount++;
 
-                for (int i = 0; i < croppedImages.size(); i++) {
-                    Mat croppedImage = croppedImages.get(i);
-                    if (croppedImage != null && !croppedImage.empty()) {
-                        validObjectCount++;
+                    // Classify the object
+                    String predictedClass = classifyObject(croppedImage);
+                    allPredictedClasses.add(predictedClass);
+                    Log.i(TAG, "Object " + i + " classified as: " + predictedClass);
 
-                        // Classify the object
-                        String predictedClass = classifyObject(croppedImage);
-                        allPredictedClasses.add(predictedClass);
-                        Log.i(TAG, "Object " + i + " classified as: " + predictedClass);
-
-                        api.saveMatImage(croppedImage, callpreimg + "object_" + i + ".png");
-                        if (predictedClass != "crystal" && predictedClass != "diamond" && predictedClass != "emerald") {
-                            landmarkCount++;
-                            api.setAreaInfo(callpreimg, predictedClass, landmarkCount);
-                        }
+                    api.saveMatImage(croppedImage, callpreimg + "object_" + i + ".png");
+                    if (predictedClass != "crystal" && predictedClass != "diamond" && predictedClass != "emerald") {
+                        landmarkCount++;
+                        api.setAreaInfo(callpreimg, predictedClass, landmarkCount);
                     }
                 }
-
-                Log.i(TAG, "Total objects detected: " + validObjectCount);
-                Log.i(TAG, "All predicted classes: " + allPredictedClasses.toString());
-                Log.i(TAG, "Classify image done!!");
             }
+
+            Log.i(TAG, "Total objects detected: " + validObjectCount);
+            Log.i(TAG, "All predicted classes: " + allPredictedClasses.toString());
+            Log.i(TAG, "Classify image done!!");
             return allPredictedClasses;
         }
     }
@@ -404,37 +394,7 @@ public class YourService extends KiboRpcService {
                     drawMat = imgDraw.clone();
                 }
 
-                int selectedIndex = -1;
-
-                for (int i = 0; i < ids.rows(); i++) {
-                    int currentId = (int) ids.get(i, 0)[0];
-                    if (!processedList.contains(currentId)) {
-                        processedList.add(currentId);
-                        selectedIndex = i;
-                        break;
-                    }
-                }
-
-                Aruco.drawDetectedMarkers(drawMat, corners, ids);
-                drawMat.release();
-
-                Mat corner = null;
-
-                // ✅ Only define and use 'corner' if a new marker was found
-                if (selectedIndex != -1) {
-                    corner = corners.get(selectedIndex);  // Now corner is defined
-
-                    // You can safely log its type and properties
-                    Log.i(TAG, "[DEBUG] Corner matrix type: " + corner.type() +
-                            ", size: " + corner.size() +
-                            ", channels: " + corner.channels());
-
-                    // You can now proceed to use 'corner'
-                } else {
-                    Log.i(TAG, "No new marker found to process.");
-                }
-
-
+                Mat corner = corners.get(0);
                 Log.i(TAG, "[DEBUG] Corner matrix type: " + corner.type() + ", size: " + corner.size() + ", channels: " + corner.channels());
 
                 // Convert corner data to float array for processing
@@ -510,26 +470,26 @@ public class YourService extends KiboRpcService {
         }
 
         private MatOfPoint2f findBiggestContour(List<MatOfPoint> contours) {
-                double maxArea = 0;
-                MatOfPoint2f biggest = null;
+            double maxArea = 0;
+            MatOfPoint2f biggest = null;
 
-                for (MatOfPoint contour : contours) {
-                    double area = Imgproc.contourArea(contour);
-                    if (area > 1000) {
-                        MatOfPoint2f contour2f = new MatOfPoint2f();
-                        contour.convertTo(contour2f, CvType.CV_32FC2);
+            for (MatOfPoint contour : contours) {
+                double area = Imgproc.contourArea(contour);
+                if (area > 1000) {
+                    MatOfPoint2f contour2f = new MatOfPoint2f();
+                    contour.convertTo(contour2f, CvType.CV_32FC2);
 
-                        MatOfPoint2f approx = new MatOfPoint2f();
-                        double epsilon = 0.015 * Imgproc.arcLength(contour2f, true);
-                        Imgproc.approxPolyDP(contour2f, approx, epsilon, true);
+                    MatOfPoint2f approx = new MatOfPoint2f();
+                    double epsilon = 0.015 * Imgproc.arcLength(contour2f, true);
+                    Imgproc.approxPolyDP(contour2f, approx, epsilon, true);
 
-                        org.opencv.core.Point[] approxPoints = approx.toArray();
-                        if (approxPoints.length == 4 && area > maxArea) {
-                            biggest = approx;
-                            maxArea = area;
-                        }
+                    org.opencv.core.Point[] approxPoints = approx.toArray();
+                    if (approxPoints.length == 4 && area > maxArea) {
+                        biggest = approx;
+                        maxArea = area;
                     }
                 }
+            }
 
             Log.i(TAG, "[DEBUG] Biggest contour area: " + maxArea);
             return biggest;
