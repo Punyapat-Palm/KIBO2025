@@ -60,34 +60,39 @@ public class YourService extends KiboRpcService {
         api.startMission();
         Log.i(TAG, "Start mission");
 
-        Point point = new Point(10.9d, -9.89d, 5.455d);
-        Quaternion quaternion = new Quaternion(0f, 0f, -0.707f, 0.6f);
+        Point point = new Point(10.9d, -9.89d, 4.945d);
+        Quaternion quaternion = new Quaternion(0.155f, -0.183f, -0.683f, 0.579f);
         api.moveTo(point, quaternion, false);
 
         image = api.getMatNavCam();
         result = image_processor.process(image, callpreimg);
         callpreimg++;
 
-        // Area 2
-        Point pointArea2 = new Point(10.925d, -8.875d, 4.955d); // Midpoint x = (10.3 + 11.55) / 2, y = (−9.25 + −8.5) / 2
-        Quaternion quaternionArea2 = new Quaternion(0f, 0.707f, 0f, 0.707f);
-        api.moveTo(pointArea2, quaternionArea2, false);
+        // Areas 2 and 3 (single snapshot with two papers)
+        Point pointArea2_3 = new Point(10.925, -7.945d, 4.945d); // Midpoint y = (-8.875 + -7.45) / 2
+        Quaternion quaternionArea2_3 = new Quaternion(0f, 0.707f, 0f, 0.707f);
+        api.moveTo(pointArea2_3, quaternionArea2_3, false);
         image = api.getMatNavCam();
         api.saveMatImage(image, callpreimg + "raw.png");
-        result = image_processor.process(image, callpreimg);
-        callpreimg++;
+        // Get image dimensions
+        int width = image.cols();
+        int height = image.rows();
 
-        // Area 3
-        Point pointArea3 = new Point(10.925d, -7.45, 4.955d); // Midpoint y = (−8.4 + −7.45) / 2
-        Quaternion quaternionArea3 = new Quaternion(0f, 0.707f, 0f, 0.707f);
-        api.moveTo(pointArea3, quaternionArea3, false);
-        image = api.getMatNavCam();
-        api.saveMatImage(image, callpreimg + "raw.png");
-        result = image_processor.process(image, callpreimg);
+        // Crop left half
+        Rect leftROI = new Rect(0, 0, width / 2, height);
+        Mat leftHalf = new Mat(image, leftROI);
+        api.saveMatImage(leftHalf, callpreimg + "left.png");
+        result = image_processor.process(leftHalf, callpreimg);
+        callpreimg++;
+        // Crop right half
+        Rect rightROI = new Rect(width / 2, 0, width / 2, height);
+        Mat rightHalf = new Mat(image, rightROI);
+        api.saveMatImage(rightHalf, callpreimg + "right.png");
+        result = image_processor.process(rightHalf, callpreimg);
         callpreimg++;
 
         // Area 4
-        Point pointArea4 = new Point(10.955d, -6.8525d, 4.935d); // y = (−7.34 + −6.365)/2, z = (4.32 + 5.57)/2
+        Point pointArea4 = new Point(11.125, -6.8525d, 4.935d); // y = (−7.34 + −6.365)/2, z = (4.32 + 5.57)/2
         Quaternion quaternionArea4 = new Quaternion(-0.707f, 0f, 0f, 0.707f);
         api.moveTo(pointArea4, quaternionArea4, false);
         image = api.getMatDockCam();
