@@ -2,6 +2,7 @@ package jp.jaxa.iss.kibo.rpc.sampleapk;
 
 import android.util.Log;
 
+import gov.nasa.arc.astrobee.Result;
 import jp.jaxa.iss.kibo.rpc.api.KiboRpcService;
 
 import gov.nasa.arc.astrobee.types.Point;
@@ -58,38 +59,60 @@ public class YourService extends KiboRpcService {
         Mat image = null;
         Full_process image_processor = new Full_process();
         List<String> result = null;
-
+        final int LOOP_MAX = 5;
+        Result res;
 
         api.startMission();
         Log.i(TAG, "Start mission");
 
         Point point = new Point(10.9d, -9.89d, 4.975d);
         Quaternion quaternion = new Quaternion(0f, 0f, -0.707f, 0.6f);
-        api.moveTo(point, quaternion, false);
+        int loopCounter = 0;
+        res = api.moveTo(point, quaternion, false);
+        while (!res.hasSucceeded() && loopCounter < LOOP_MAX) {
+            res = api.moveTo(point, quaternion, false);
+            loopCounter++;
+        }
         image = api.getMatNavCam();
         result = image_processor.process(image, callpreimg);
         callpreimg++;
 
         // Area 2
-        Point pointArea2 = new Point(10.925, -8.95d, 4.945d);  // Midpoint x = (10.3 + 11.55) / 2, y = (−9.25 + −8.5) / 2
+        Point pointArea2 = new Point(10.805, -8.95d, 4.945d);  // Midpoint x = (10.3 + 11.55) / 2, y = (−9.25 + −8.5) / 2
         Quaternion quaternionArea2 = new Quaternion(0f, 0.707f, 0f, 0.707f);
-        api.moveTo(pointArea2, quaternionArea2, false);
+        loopCounter = 0;
+        res = api.moveTo(pointArea2, quaternionArea2, false);
+        while (!res.hasSucceeded() && loopCounter < LOOP_MAX) {
+            res = api.moveTo(pointArea2, quaternionArea2, false);
+            loopCounter++;
+        }
         image = api.getMatNavCam();
         result = image_processor.process(image, callpreimg);
         callpreimg++;
 
         // Area 3
-        Point pointArea3 = new Point(10.925, -6.945d, 4.945d);  // Midpoint y = (−8.4 + −7.45) / 2
+        Point pointArea3 = new Point(10.925, -7.145d, 4.52d);  // Midpoint y = (−8.4 + −7.45) / 2
         Quaternion quaternionArea3 = new Quaternion(0f, 0.707f, 0f, 0.707f);// Assuming same orientation
         api.moveTo(pointArea3, quaternionArea3, false);
+        loopCounter = 0;
+        res = api.moveTo(pointArea3, quaternionArea3, false);
+        while (!res.hasSucceeded() && loopCounter < LOOP_MAX) {
+            res = api.moveTo(pointArea3, quaternionArea3, false);
+            loopCounter++;
+        }
         image = api.getMatNavCam();
         result = image_processor.process(image, callpreimg);
         callpreimg++;
 
         // Area 4
-        Point pointArea4 = new Point(11.295, -6.8575d, 4.945d); // y = (−7.34 + −6.365)/2, z = (4.32 + 5.57)/2
+        Point pointArea4 = new Point(11.125, -6.8525d, 4.935d); // y = (−7.34 + −6.365)/2, z = (4.32 + 5.57)/2
         Quaternion quaternionArea4 = new Quaternion(-0.707f, 0f, 0f, 0.707f);
-        api.moveTo(pointArea4, quaternionArea4, false);
+        loopCounter = 0;
+        res = api.moveTo(pointArea4, quaternionArea4, false);
+        while (!res.hasSucceeded() && loopCounter < LOOP_MAX) {
+            res = api.moveTo(pointArea4, quaternionArea4, false);
+            loopCounter++;
+        }
         image = api.getMatDockCam();
         result = image_processor.process(image, callpreimg);
         callpreimg++;
