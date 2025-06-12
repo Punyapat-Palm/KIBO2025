@@ -7,6 +7,7 @@ import jp.jaxa.iss.kibo.rpc.api.KiboRpcService;
 import gov.nasa.arc.astrobee.types.Point;
 import gov.nasa.arc.astrobee.types.Quaternion;
 
+import org.checkerframework.checker.units.qual.A;
 import org.opencv.android.Utils;
 import org.opencv.aruco.Aruco;
 import org.opencv.aruco.DetectorParameters;
@@ -16,14 +17,15 @@ import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfDouble;
+import org.opencv.core.MatOfInt;
 import org.opencv.core.MatOfPoint;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.MatOfPoint3f;
 import org.opencv.core.Point3;
 import org.opencv.core.Rect;
+import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
-import org.opencv.core.*;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -32,6 +34,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 
 import org.tensorflow.lite.Interpreter;
@@ -45,7 +48,7 @@ import java.nio.MappedByteBuffer;
 
 public class YourService extends KiboRpcService {
     private final String TAG = this.getClass().getSimpleName();
-    List<Integer> processedList = Arrays.asList();
+    int callpreimg = 1;
     @Override
     protected void runPlan1() {
         // Initialize TensorFlow Lite model first
@@ -55,48 +58,39 @@ public class YourService extends KiboRpcService {
         Mat image = null;
         Full_process image_processor = new Full_process();
         List<String> result = null;
-        int callpreimg = 1;
+
 
         api.startMission();
         Log.i(TAG, "Start mission");
 
-        Point point = new Point(10.9d, -9.89d, 4.945d);
-        Quaternion quaternion = new Quaternion(0.155f, -0.183f, -0.683f, 0.579f);
+        Point point = new Point(10.9d, -9.89d, 4.975d);
+        Quaternion quaternion = new Quaternion(0f, 0f, -0.707f, 0.6f);
         api.moveTo(point, quaternion, false);
-
         image = api.getMatNavCam();
         result = image_processor.process(image, callpreimg);
         callpreimg++;
 
-        // Areas 2 and 3 (single snapshot with two papers)
-        Point pointArea2_3 = new Point(10.925, -7.945d, 4.945d); // Midpoint y = (-8.875 + -7.45) / 2
-        Quaternion quaternionArea2_3 = new Quaternion(0f, 0.707f, 0f, 0.707f);
-        api.moveTo(pointArea2_3, quaternionArea2_3, false);
+        // Area 2
+        Point pointArea2 = new Point(10.925, -8.95d, 4.945d);  // Midpoint x = (10.3 + 11.55) / 2, y = (−9.25 + −8.5) / 2
+        Quaternion quaternionArea2 = new Quaternion(0f, 0.707f, 0f, 0.707f);
+        api.moveTo(pointArea2, quaternionArea2, false);
         image = api.getMatNavCam();
-        api.saveMatImage(image, callpreimg + "raw.png");
-        // Get image dimensions
-        int width = image.cols();
-        int height = image.rows();
-
-        // Crop left half
-        Rect leftROI = new Rect(0, 0, width / 2, height);
-        Mat leftHalf = new Mat(image, leftROI);
-        api.saveMatImage(leftHalf, callpreimg + "left.png");
-        result = image_processor.process(leftHalf, callpreimg);
+        result = image_processor.process(image, callpreimg);
         callpreimg++;
-        // Crop right half
-        Rect rightROI = new Rect(width / 2, 0, width / 2, height);
-        Mat rightHalf = new Mat(image, rightROI);
-        api.saveMatImage(rightHalf, callpreimg + "right.png");
-        result = image_processor.process(rightHalf, callpreimg);
+
+        // Area 3
+        Point pointArea3 = new Point(10.925, -6.945d, 4.945d);  // Midpoint y = (−8.4 + −7.45) / 2
+        Quaternion quaternionArea3 = new Quaternion(0f, 0.707f, 0f, 0.707f);// Assuming same orientation
+        api.moveTo(pointArea3, quaternionArea3, false);
+        image = api.getMatNavCam();
+        result = image_processor.process(image, callpreimg);
         callpreimg++;
 
         // Area 4
-        Point pointArea4 = new Point(11.125, -6.8525d, 4.935d); // y = (−7.34 + −6.365)/2, z = (4.32 + 5.57)/2
+        Point pointArea4 = new Point(11.295, -6.8575d, 4.945d); // y = (−7.34 + −6.365)/2, z = (4.32 + 5.57)/2
         Quaternion quaternionArea4 = new Quaternion(-0.707f, 0f, 0f, 0.707f);
         api.moveTo(pointArea4, quaternionArea4, false);
         image = api.getMatDockCam();
-        api.saveMatImage(image, callpreimg + "raw.png");
         result = image_processor.process(image, callpreimg);
         callpreimg++;
 
@@ -134,10 +128,8 @@ public class YourService extends KiboRpcService {
 
             Log.i(TAG, "Start cropping image");
             DocumentScanner scanner = new DocumentScanner();
-
-            Mat A4Crop = scanner.processDocumentWithVisualization(undistort, callpreimg);
+            Mat A4Crop = scanner.processDocument(undistort);
             api.saveMatImage(A4Crop, callpreimg + "A4Crop.png");
-
             if (!scanner.detectAruco(A4Crop)) {
                 A4Crop = ManualA4Cropper(undistort, cameraM);
                 api.saveMatImage(A4Crop, callpreimg + "ManualA4Crop.png");
@@ -293,7 +285,7 @@ public class YourService extends KiboRpcService {
     public class DocumentScanner {
         private static final String TAG = "DocumentScanner";
 
-        public Mat processDocumentWithVisualization(Mat inputImage, int callpreimg) {
+        public Mat processDocument(Mat inputImage) {
             if (inputImage.empty()) {
                 Log.i(TAG, "[ERROR] Input image is empty");
                 return new Mat();
@@ -315,6 +307,9 @@ public class YourService extends KiboRpcService {
                 imgCopy = inputImage.clone();
             }
 
+            Log.i(TAG, "[DEBUG] gray type: " + gray.type() + ", channels: " + gray.channels());
+            Log.i(TAG, "[DEBUG] imgCopy type: " + imgCopy.type() + ", channels: " + imgCopy.channels());
+
             boolean arucoDetected = detectAruco(imgCopy);
 
             Mat edged = preprocessEdges(gray);
@@ -327,38 +322,39 @@ public class YourService extends KiboRpcService {
                 return inputImage;
             }
 
-            MatOfPoint2f biggestWithAruco = findContourWithAruco(contours, imgCopy); // Updated to use ArUco-based detection
-
-            // Save contour detection visualization
-            saveContourDetectionImage(imgCopy, contours, biggestWithAruco, callpreimg);
-
-            if (biggestWithAruco == null) {
+            MatOfPoint2f biggest = findContourWithAruco(contours, imgCopy);
+            saveContourDetectionImage(imgCopy, contours, biggest, callpreimg);
+            if (biggest == null) {
                 Log.i(TAG, "[ERROR] No valid rectangle found");
                 return inputImage;
             }
 
-            org.opencv.core.Point[] points = biggestWithAruco.toArray();
+            org.opencv.core.Point[] points = biggest.toArray();
+            Log.i(TAG, "[DEBUG] Raw contour points found: " + points.length);
 
             if (!validateCorners(points)) {
                 Log.i(TAG, "[ERROR] Corner validation failed");
                 return inputImage;
             }
 
+            Log.i(TAG, "[SUCCESS] Corners validated");
+
             try {
                 Mat warped = perspectiveTransform(imgCopy, points);
                 Mat rotated = correctImageOrientation(warped);
+                // Mat cropped = cropRightCmRatio(rotated);
+
+                Log.i(TAG, "[SUCCESS] Document processing completed");
                 return rotated;
             } catch (Exception e) {
                 Log.i(TAG, "[ERROR] Processing failed: " + e.getMessage());
                 return inputImage;
             } finally {
+                // Release temporary matrices
                 gray.release();
                 imgCopy.release();
-                edged.release();
-                hierarchy.release();
             }
         }
-
 
         private boolean detectAruco(Mat imgDraw) {
             Mat gray1 = new Mat();
@@ -399,6 +395,10 @@ public class YourService extends KiboRpcService {
                     drawMat = imgDraw.clone();
                 }
 
+                Aruco.drawDetectedMarkers(drawMat, corners, ids);
+                drawMat.release();
+
+                // Process corner points
                 Mat corner = corners.get(0);
                 Log.i(TAG, "[DEBUG] Corner matrix type: " + corner.type() + ", size: " + corner.size() + ", channels: " + corner.channels());
 
@@ -474,32 +474,6 @@ public class YourService extends KiboRpcService {
             return edged;
         }
 
-        private MatOfPoint2f findBiggestContour(List<MatOfPoint> contours) {
-            double maxArea = 0;
-            MatOfPoint2f biggest = null;
-
-            for (MatOfPoint contour : contours) {
-                double area = Imgproc.contourArea(contour);
-                if (area > 1000) {
-                    MatOfPoint2f contour2f = new MatOfPoint2f();
-                    contour.convertTo(contour2f, CvType.CV_32FC2);
-
-                    MatOfPoint2f approx = new MatOfPoint2f();
-                    double epsilon = 0.015 * Imgproc.arcLength(contour2f, true);
-                    Imgproc.approxPolyDP(contour2f, approx, epsilon, true);
-
-                    org.opencv.core.Point[] approxPoints = approx.toArray();
-                    if (approxPoints.length == 4 && area > maxArea) {
-                        biggest = approx;
-                        maxArea = area;
-                    }
-                }
-            }
-
-            Log.i(TAG, "[DEBUG] Biggest contour area: " + maxArea);
-            return biggest;
-        }
-
         private MatOfPoint2f findContourWithAruco(List<MatOfPoint> contours, Mat image) {
             Dictionary dictionary = Aruco.getPredefinedDictionary(Aruco.DICT_5X5_250); // Match your ArUco markers
             MatOfPoint2f biggestWithAruco = null;
@@ -538,6 +512,91 @@ public class YourService extends KiboRpcService {
                 }
             }
             return biggestWithAruco != null ? biggestWithAruco : findBiggestContour(contours); // Fallback
+        }
+
+        private MatOfPoint2f findBiggestContour(List<MatOfPoint> contours) {
+            double maxArea = 0;
+            MatOfPoint2f biggest = null;
+
+            for (MatOfPoint contour : contours) {
+                double area = Imgproc.contourArea(contour);
+                if (area > 1000) {
+                    MatOfPoint2f contour2f = new MatOfPoint2f();
+                    contour.convertTo(contour2f, CvType.CV_32FC2);
+
+                    MatOfPoint2f approx = new MatOfPoint2f();
+                    double epsilon = 0.015 * Imgproc.arcLength(contour2f, true);
+                    Imgproc.approxPolyDP(contour2f, approx, epsilon, true);
+
+                    org.opencv.core.Point[] approxPoints = approx.toArray();
+                    if (approxPoints.length == 4 && area > maxArea) {
+                        biggest = approx;
+                        maxArea = area;
+                    }
+                }
+            }
+
+            Log.i(TAG, "[DEBUG] Biggest contour area: " + maxArea);
+            return biggest;
+        }
+
+        private void saveContourDetectionImage(Mat inputImage, List<MatOfPoint> contours, MatOfPoint2f biggestWithAruco, int callpreimg) {
+            // Create a copy of the input image for drawing
+            Mat contourImage = new Mat();
+            if (inputImage.channels() == 1) {
+                Imgproc.cvtColor(inputImage, contourImage, Imgproc.COLOR_GRAY2BGR);
+            } else {
+                contourImage = inputImage.clone();
+            }
+
+            // Draw all contours in light blue
+            for (int i = 0; i < contours.size(); i++) {
+                double area = Imgproc.contourArea(contours.get(i));
+                if (area > 1000) { // Only draw significant contours
+                    Imgproc.drawContours(contourImage, contours, i,
+                            new org.opencv.core.Scalar(255, 255, 0), 2); // Light blue
+                }
+            }
+
+            // Draw the biggest contour with ArUco (if exists) in red with thicker line
+            if (biggestWithAruco != null) {
+                List<MatOfPoint> biggestContour = new ArrayList<>();
+                MatOfPoint biggestAsMatOfPoint = new MatOfPoint();
+                biggestWithAruco.convertTo(biggestAsMatOfPoint, CvType.CV_32S);
+                biggestContour.add(biggestAsMatOfPoint);
+
+                Imgproc.drawContours(contourImage, biggestContour, -1,
+                        new org.opencv.core.Scalar(0, 0, 255), 4); // Red, thick line
+
+                // Draw corner points as circles
+                org.opencv.core.Point[] points = biggestWithAruco.toArray();
+                for (int i = 0; i < points.length; i++) {
+                    org.opencv.core.Point point = points[i];
+                    Imgproc.circle(contourImage, point, 8,
+                            new org.opencv.core.Scalar(0, 255, 0), -1); // Green filled circles
+
+                    // Add corner labels
+                    Imgproc.putText(contourImage, String.valueOf(i),
+                            new org.opencv.core.Point(point.x + 10, point.y - 10),
+                            Imgproc.FONT_HERSHEY_SIMPLEX, 0.7,
+                            new org.opencv.core.Scalar(255, 255, 255), 2);
+                }
+            }
+
+            // Add text overlay with detection info
+            String info = String.format("Contours: %d, Area: %.0f",
+                    contours.size(), biggestWithAruco != null ? Imgproc.contourArea(new MatOfPoint(biggestWithAruco.toArray())) : 0);
+            Imgproc.putText(contourImage, info,
+                    new org.opencv.core.Point(10, 30),
+                    Imgproc.FONT_HERSHEY_SIMPLEX, 0.8,
+                    new org.opencv.core.Scalar(255, 255, 255), 2);
+
+            // Save the contour detection image
+            api.saveMatImage(contourImage, callpreimg + "Contour_detection.png");
+            Log.i(TAG, "Saved contour detection visualization");
+
+            // Clean up
+            contourImage.release();
         }
 
         private org.opencv.core.Point[] orderPoints(org.opencv.core.Point[] pts) {
@@ -768,65 +827,6 @@ public class YourService extends KiboRpcService {
 
             Log.i(TAG, "Cropped right image to: " + cropped.size());
             return cropped;
-        }
-
-        private void saveContourDetectionImage(Mat inputImage, List<MatOfPoint> contours, MatOfPoint2f biggest, int callpreimg) {
-            // Create a copy of the input image for drawing
-            Mat contourImage = new Mat();
-            if (inputImage.channels() == 1) {
-                Imgproc.cvtColor(inputImage, contourImage, Imgproc.COLOR_GRAY2BGR);
-            } else {
-                contourImage = inputImage.clone();
-            }
-
-            // Draw all contours in light blue
-            for (int i = 0; i < contours.size(); i++) {
-                double area = Imgproc.contourArea(contours.get(i));
-                if (area > 1000) { // Only draw significant contours
-                    Imgproc.drawContours(contourImage, contours, i,
-                            new org.opencv.core.Scalar(255, 255, 0), 2); // Light blue
-                }
-            }
-
-            // Draw the biggest contour (selected rectangle) in red with thicker line
-            if (biggest != null) {
-                List<MatOfPoint> biggestContour = new ArrayList<>();
-                MatOfPoint biggestAsMatOfPoint = new MatOfPoint();
-                biggest.convertTo(biggestAsMatOfPoint, CvType.CV_32S);
-                biggestContour.add(biggestAsMatOfPoint);
-
-                Imgproc.drawContours(contourImage, biggestContour, -1,
-                        new org.opencv.core.Scalar(0, 0, 255), 4); // Red, thick line
-
-                // Draw corner points as circles
-                org.opencv.core.Point[] points = biggest.toArray();
-                for (int i = 0; i < points.length; i++) {
-                    org.opencv.core.Point point = points[i];
-                    Imgproc.circle(contourImage, point, 8,
-                            new org.opencv.core.Scalar(0, 255, 0), -1); // Green filled circles
-
-                    // Add corner labels
-                    Imgproc.putText(contourImage, String.valueOf(i),
-                            new org.opencv.core.Point(point.x + 10, point.y - 10),
-                            Imgproc.FONT_HERSHEY_SIMPLEX, 0.7,
-                            new org.opencv.core.Scalar(255, 255, 255), 2);
-                }
-            }
-
-            // Add text overlay with detection info
-            String info = String.format("Contours: %d, Area: %.0f",
-                    contours.size(), biggest != null ? Imgproc.contourArea(new MatOfPoint(biggest.toArray())) : 0);
-            Imgproc.putText(contourImage, info,
-                    new org.opencv.core.Point(10, 30),
-                    Imgproc.FONT_HERSHEY_SIMPLEX, 0.8,
-                    new org.opencv.core.Scalar(255, 255, 255), 2);
-
-            // Save the contour detection image
-            api.saveMatImage(contourImage, callpreimg + "Contour_detection.png");
-            Log.i(TAG, "Saved contour detection visualization");
-
-            // Clean up
-            contourImage.release();
         }
     }
 
