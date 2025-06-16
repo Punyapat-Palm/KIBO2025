@@ -67,6 +67,8 @@ public class YourService extends KiboRpcService {
 
         Point point = new Point(10.9d, -9.89d, 4.975d);
         Quaternion quaternion = new Quaternion(0f, 0f, -0.707f, 0.6f);
+//        Point point = new Point(10.8d, -9.89d, 4.865d);
+//        Quaternion quaternion = new Quaternion(-0.213f, -0.213f, -0.674f, 0.674f);
         int loopCounter = 0;
         res = api.moveTo(point, quaternion, false);
         while (!res.hasSucceeded() && loopCounter < LOOP_MAX) {
@@ -76,9 +78,11 @@ public class YourService extends KiboRpcService {
         image = api.getMatNavCam();
         result = image_processor.process(image, callpreimg);
         callpreimg++;
-
+        Point pointArea2_1 = new Point(10.95d, -9.54d, 4.745d);
+        Quaternion quaternionArea2_1 = new Quaternion(0f, 0.707f, 0f, 0.707f);
+        api.moveTo(pointArea2_1, quaternionArea2_1, false);
         // Area 2
-        Point pointArea2 = new Point(10.805, -8.95d, 4.945d);  // Midpoint x = (10.3 + 11.55) / 2, y = (−9.25 + −8.5) / 2
+        Point pointArea2 = new Point(10.95d, -9.2, 4.745d);  // Midpoint x = (10.3 + 11.55) / 2, y = (−9.25 + −8.5) / 2
         Quaternion quaternionArea2 = new Quaternion(0f, 0.707f, 0f, 0.707f);
         loopCounter = 0;
         res = api.moveTo(pointArea2, quaternionArea2, false);
@@ -91,7 +95,7 @@ public class YourService extends KiboRpcService {
         callpreimg++;
 
         // Area 3
-        Point pointArea3 = new Point(10.925, -7.145d, 4.52d);  // Midpoint y = (−8.4 + −7.45) / 2
+        Point pointArea3 = new Point(10.925, -7.445d, 4.52d);  // Midpoint y = (−8.4 + −7.45) / 2
         Quaternion quaternionArea3 = new Quaternion(0f, 0.707f, 0f, 0.707f);// Assuming same orientation
         api.moveTo(pointArea3, quaternionArea3, false);
         loopCounter = 0;
@@ -104,8 +108,11 @@ public class YourService extends KiboRpcService {
         result = image_processor.process(image, callpreimg);
         callpreimg++;
 
+        Point pointArea4_1 = new Point(11.137, -7.21d, 4.815d); // y = (−7.34 + −6.365)/2, z = (4.32 + 5.57)/2
+        Quaternion quaternionArea4_1 = new Quaternion(-0.707f, 0f, 0f, 0.707f);
+        api.moveTo(pointArea4_1, quaternionArea4_1, false);
         // Area 4
-        Point pointArea4 = new Point(11.125, -6.8525d, 4.935d); // y = (−7.34 + −6.365)/2, z = (4.32 + 5.57)/2
+        Point pointArea4 = new Point(11.137, -7.01d, 4.815d); // y = (−7.34 + −6.365)/2, z = (4.32 + 5.57)/2
         Quaternion quaternionArea4 = new Quaternion(-0.707f, 0f, 0f, 0.707f);
         loopCounter = 0;
         res = api.moveTo(pointArea4, quaternionArea4, false);
@@ -128,7 +135,7 @@ public class YourService extends KiboRpcService {
 
     @Override
     protected void runPlan2(){
-        // write your plan 2 here.
+        // write your plan 2 here
     }
 
     @Override
@@ -213,6 +220,7 @@ public class YourService extends KiboRpcService {
         }
     }
 
+    int image_size = 96;
     private String classifyObject(Mat croppedImage) {
         if (tfliteInterpreter == null) {
             Log.e(TAG, "TensorFlow Lite interpreter not initialized");
@@ -220,9 +228,9 @@ public class YourService extends KiboRpcService {
         }
 
         try {
-            // Resize the image to 120x120 (model input size)
+            // Resize the image to image_sizeximage_size (model input size)
             Mat resized = new Mat();
-            Imgproc.resize(croppedImage, resized, new Size(120, 120));
+            Imgproc.resize(croppedImage, resized, new Size(image_size, image_size));
 
             // Convert to RGB if needed
             Mat rgb = new Mat();
@@ -272,15 +280,15 @@ public class YourService extends KiboRpcService {
 
     // Helper method to convert Bitmap to ByteBuffer
     private ByteBuffer convertBitmapToByteBuffer(Bitmap bitmap) {
-        ByteBuffer byteBuffer = ByteBuffer.allocateDirect(4 * 120 * 120 * 3);
+        ByteBuffer byteBuffer = ByteBuffer.allocateDirect(4 * image_size * image_size * 3);
         byteBuffer.order(ByteOrder.nativeOrder());
 
-        int[] intValues = new int[120 * 120];
+        int[] intValues = new int[image_size * image_size];
         bitmap.getPixels(intValues, 0, bitmap.getWidth(), 0, 0, bitmap.getWidth(), bitmap.getHeight());
 
         int pixel = 0;
-        for (int i = 0; i < 120; ++i) {
-            for (int j = 0; j < 120; ++j) {
+        for (int i = 0; i < image_size; ++i) {
+            for (int j = 0; j < image_size; ++j) {
                 final int val = intValues[pixel++];
 
                 // FIXED: Remove the /255.0f normalization
@@ -836,24 +844,128 @@ public class YourService extends KiboRpcService {
             int height = image.height();
             int width = image.width();
 
-            // A4 width ratio: crop to 15.7/21.0 of original width
-            double cropFraction = 15.7 / 21.0;
-            int cropWidth = (int) (width * cropFraction);
+            // ---- Step 1: Crop right side (A4 width ratio: 15.7 / 21.0) ----
+            double widthFraction = 15.7 / 21.0;
+            int cropWidth = (int) (width * widthFraction);
 
             if (cropWidth <= 0) {
                 Log.i(TAG, "Image is too narrow to crop");
                 return image;
             }
 
-            Rect cropRect = new Rect(0, 0, cropWidth, height);
-            Mat cropped = new Mat(image, cropRect);
+            // ---- Step 2: Convert 6 cm from top and 3 cm from bottom to pixels ----
+            // Based on A4 paper height (29.7 cm)
+            int cropTop = (int) (height * (4.6 / 29.7));
+            int cropBottom = (int) (height * (4.6 / 29.7));
 
-            Log.i(TAG, "Cropped right image to: " + cropped.size());
+            if (height <= (cropTop + cropBottom)) {
+                Log.i(TAG, "Image is too short to crop 6 cm top and 3 cm bottom");
+                return image;
+            }
+
+            // Final cropping rectangle
+            Rect cropRect = new Rect(
+                    0,                        // x: from left
+                    cropTop,                 // y: start after top 6 cm
+                    cropWidth,               // width: cropped to 15.7/21.0 of original
+                    height - cropTop - cropBottom  // height: remove 6 cm top & 3 cm bottom
+            );
+
+            Mat cropped = new Mat(image, cropRect);
+            Log.i(TAG, "Cropped image to size: " + cropped.size());
+            api.saveMatImage(cropped, callpreimg + "crop_RTB.png");
             return cropped;
         }
     }
 
-    private static List<Mat> cropObjects(Mat image) {
+//    private static List<Mat> cropObjects(Mat image) {
+//        // Convert to grayscale (check if already grayscale)
+//        Mat gray = new Mat();
+//        if (image.channels() == 3) {
+//            Imgproc.cvtColor(image, gray, Imgproc.COLOR_BGR2GRAY);
+//        } else if (image.channels() == 4) {
+//            Imgproc.cvtColor(image, gray, Imgproc.COLOR_BGRA2GRAY);
+//        } else {
+//            // Image is already grayscale
+//            gray = image.clone();
+//        }
+//
+//        // Apply Gaussian blur to reduce noise
+//        Mat blur = new Mat();
+//        Imgproc.GaussianBlur(gray, blur, new Size(5, 5), 0);
+//
+//        // Increase contrast
+//        Mat imageContrast = new Mat();
+//        double alpha = 1.8; // Contrast control (1.0-3.0)
+//        double beta = 0;    // Brightness control (changed from int to double)
+//        gray.convertTo(imageContrast, CvType.CV_8UC1, alpha, beta);
+//
+//        // Adaptive thresholding
+//        Mat thresh = new Mat();
+//        Imgproc.adaptiveThreshold(imageContrast, thresh, 255,
+//                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+//                Imgproc.THRESH_BINARY_INV, 15, 5);
+//
+//        // Find contours
+//        List<MatOfPoint> contours = new ArrayList<>();
+//        Mat hierarchy = new Mat();
+//        Imgproc.findContours(thresh, contours, hierarchy,
+//                Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+//
+//        // List to store cropped images
+//        List<Mat> croppedImages = new ArrayList<>();
+//
+//        // Crop each contour with square aspect ratio
+//        for (int i = 0; i < contours.size(); i++) {
+//            MatOfPoint contour = contours.get(i);
+//
+//            double area = Imgproc.contourArea(contour);
+//            if (area > 12) { // Only minimum area filter, no maximum
+//                Rect boundingRect = Imgproc.boundingRect(contour);
+//                int x = boundingRect.x;
+//                int y = boundingRect.y;
+//                int w = boundingRect.width;
+//                int h = boundingRect.height;
+//
+//                // Determine the size of the square
+//                int sideLength = Math.max(w, h);
+//                int padding = 5;
+//
+//                // Center the square around the original bounding box
+//                int centerX = x + w / 2;
+//                int centerY = y + h / 2;
+//
+//                // Calculate new square bounds
+//                int xNew = Math.max(0, centerX - sideLength / 2 - padding);
+//                int yNew = Math.max(0, centerY - sideLength / 2 - padding);
+//                int side = sideLength + 2 * padding;
+//
+//                // Ensure the square crop doesn't exceed image boundaries
+//                xNew = Math.min(xNew, image.cols() - side);
+//                yNew = Math.min(yNew, image.rows() - side);
+//
+//                // Ensure valid dimensions
+//                if (xNew >= 0 && yNew >= 0 && xNew + side <= image.cols() && yNew + side <= image.rows() && side > 0) {
+//                    // Crop and store the square image
+//                    Rect cropRect = new Rect(xNew, yNew, side, side);
+//                    Mat croppedImage = new Mat(image, cropRect);
+//                    croppedImages.add(croppedImage.clone()); // Clone to avoid reference issues
+//                }
+//            }
+//        }
+//
+//        // Clean up temporary matrices
+//        gray.release();
+//        blur.release();
+//        imageContrast.release();
+//        thresh.release();
+//        hierarchy.release();
+//
+//        return croppedImages;
+//    }
+
+    // new vesion for crop image function
+    public static List<Mat> cropObjects(Mat image) {
         // Convert to grayscale (check if already grayscale)
         Mat gray = new Mat();
         if (image.channels() == 3) {
@@ -861,7 +973,6 @@ public class YourService extends KiboRpcService {
         } else if (image.channels() == 4) {
             Imgproc.cvtColor(image, gray, Imgproc.COLOR_BGRA2GRAY);
         } else {
-            // Image is already grayscale
             gray = image.clone();
         }
 
@@ -871,8 +982,8 @@ public class YourService extends KiboRpcService {
 
         // Increase contrast
         Mat imageContrast = new Mat();
-        double alpha = 1.5; // Contrast control (1.0-3.0)
-        double beta = 0;    // Brightness control (changed from int to double)
+        double alpha = 1.8; // Contrast control
+        double beta = 0;    // Brightness control
         gray.convertTo(imageContrast, CvType.CV_8UC1, alpha, beta);
 
         // Adaptive thresholding
@@ -895,14 +1006,14 @@ public class YourService extends KiboRpcService {
             MatOfPoint contour = contours.get(i);
 
             double area = Imgproc.contourArea(contour);
-            if (area > 50) { // Only minimum area filter, no maximum
+            if (area > 12) {
                 Rect boundingRect = Imgproc.boundingRect(contour);
                 int x = boundingRect.x;
                 int y = boundingRect.y;
                 int w = boundingRect.width;
                 int h = boundingRect.height;
 
-                // Determine the size of the square
+                // Determine the size of the square based on the larger dimension
                 int sideLength = Math.max(w, h);
                 int padding = 5;
 
@@ -910,21 +1021,20 @@ public class YourService extends KiboRpcService {
                 int centerX = x + w / 2;
                 int centerY = y + h / 2;
 
-                // Calculate new square bounds
+                // Calculate new square bounds with padding
                 int xNew = Math.max(0, centerX - sideLength / 2 - padding);
                 int yNew = Math.max(0, centerY - sideLength / 2 - padding);
                 int side = sideLength + 2 * padding;
 
-                // Ensure the square crop doesn't exceed image boundaries
+                // Adjust bounds to stay within image dimensions
                 xNew = Math.min(xNew, image.cols() - side);
                 yNew = Math.min(yNew, image.rows() - side);
 
-                // Ensure valid dimensions
+                // Ensure valid crop rectangle
                 if (xNew >= 0 && yNew >= 0 && xNew + side <= image.cols() && yNew + side <= image.rows() && side > 0) {
-                    // Crop and store the square image
                     Rect cropRect = new Rect(xNew, yNew, side, side);
                     Mat croppedImage = new Mat(image, cropRect);
-                    croppedImages.add(croppedImage.clone()); // Clone to avoid reference issues
+                    croppedImages.add(croppedImage.clone());
                 }
             }
         }
@@ -938,14 +1048,6 @@ public class YourService extends KiboRpcService {
 
         return croppedImages;
     }
-
-    private void cleanup() {
-        if (tfliteInterpreter != null) {
-            tfliteInterpreter.close();
-            tfliteInterpreter = null;
-        }
-    }
-
     private static Mat ManualA4Cropper(Mat undistort, Mat cameraM) {
         // Use zero distortion since image is already undistorted
         MatOfDouble zeroDist = new MatOfDouble(0, 0, 0, 0);
@@ -998,11 +1100,5 @@ public class YourService extends KiboRpcService {
         } else {
             return undistort;
         }
-    }
-
-    @Override
-    public void onDestroy() {
-        cleanup();
-        super.onDestroy();
     }
 }
