@@ -2,13 +2,12 @@ package jp.jaxa.iss.kibo.rpc.sampleapk;
 
 import android.util.Log;
 
+import gov.nasa.arc.astrobee.Kinematics;
 import gov.nasa.arc.astrobee.Result;
 import jp.jaxa.iss.kibo.rpc.api.KiboRpcService;
 
 import gov.nasa.arc.astrobee.types.Point;
 import gov.nasa.arc.astrobee.types.Quaternion;
-
-import org.checkerframework.checker.units.qual.A;
 import org.opencv.android.Utils;
 import org.opencv.aruco.Aruco;
 import org.opencv.aruco.DetectorParameters;
@@ -26,6 +25,7 @@ import org.opencv.core.Point3;
 import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
+import org.opencv.imgproc.CLAHE;
 import org.opencv.imgproc.Imgproc;
 
 import java.nio.ByteBuffer;
@@ -35,9 +35,9 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import android.content.Context;
 import android.graphics.Bitmap;
 
+import org.opencv.photo.Photo;
 import org.tensorflow.lite.Interpreter;
 import org.tensorflow.lite.support.common.FileUtil;
 
@@ -50,6 +50,9 @@ import java.nio.MappedByteBuffer;
 public class YourService extends KiboRpcService {
     private final String TAG = this.getClass().getSimpleName();
     int callpreimg = 1;
+    List<double[]> pointTarget = new ArrayList<>();
+    List<float[]> quaternionTarget = new ArrayList<>();
+    List<String> EachTarget = new ArrayList<>();
     @Override
     protected void runPlan1() {
         // Initialize TensorFlow Lite model first
@@ -65,10 +68,8 @@ public class YourService extends KiboRpcService {
         api.startMission();
         Log.i(TAG, "Start mission");
 
-        Point point = new Point(10.9d, -9.89d, 4.975d);
-        Quaternion quaternion = new Quaternion(0f, 0f, -0.707f, 0.6f);
-//        Point point = new Point(10.8d, -9.89d, 4.865d);
-//        Quaternion quaternion = new Quaternion(-0.213f, -0.213f, -0.674f, 0.674f);
+        Point point = new Point(10.9d, -9.92284d, 5.195d);
+        Quaternion quaternion = new Quaternion(0f, 0f, -0.707f, 0.707f);
         int loopCounter = 0;
         res = api.moveTo(point, quaternion, false);
         while (!res.hasSucceeded() && loopCounter < LOOP_MAX) {
@@ -107,11 +108,11 @@ public class YourService extends KiboRpcService {
         image = api.getMatNavCam();
         result = image_processor.process(image, callpreimg);
         callpreimg++;
-
+//
         Point pointArea4_1 = new Point(11.137, -7.21d, 4.815d); // y = (−7.34 + −6.365)/2, z = (4.32 + 5.57)/2
         Quaternion quaternionArea4_1 = new Quaternion(-0.707f, 0f, 0f, 0.707f);
         api.moveTo(pointArea4_1, quaternionArea4_1, false);
-        // Area 4
+//        // Area 4
         Point pointArea4 = new Point(11.137, -7.01d, 4.815d); // y = (−7.34 + −6.365)/2, z = (4.32 + 5.57)/2
         Quaternion quaternionArea4 = new Quaternion(-0.707f, 0f, 0f, 0.707f);
         loopCounter = 0;
@@ -128,9 +129,14 @@ public class YourService extends KiboRpcService {
         quaternion = new Quaternion(0f, 0f, 0.707f, 0.707f);
         api.moveTo(point, quaternion, false);
         api.reportRoundingCompletion();
-
-        api.notifyRecognitionItem();
-        api.takeTargetItemSnapshot();
+        try {
+            Thread.sleep(1700); // Pauses the current thread
+        } catch (InterruptedException e) {
+            // Handle the exception if the thread is interrupted while sleeping
+            Thread.currentThread().interrupt(); // Re-interrupt the current thread
+        }
+        image = api.getMatNavCam();
+        result = image_processor.process(image, callpreimg);
     }
 
     @Override
@@ -145,10 +151,16 @@ public class YourService extends KiboRpcService {
 
     public class Full_process {
         public List<String> process(Mat inputImage, int callpreimg) {
+            double[][] cameraParam = null;
+            if (callpreimg == 4) {
+                cameraParam = api.getDockCamIntrinsics();
+            } else {
+                cameraParam = api.getNavCamIntrinsics();
+            }
             Mat cameraM = new Mat(3, 3, CvType.CV_64F);
-            cameraM.put(0, 0, api.getNavCamIntrinsics()[0]);
+            cameraM.put(0, 0, cameraParam[0]);
             Mat cameraCoeff = new Mat(1, 5, CvType.CV_64F);
-            cameraCoeff.put(0, 0, api.getNavCamIntrinsics()[1]);
+            cameraCoeff.put(0, 0, cameraParam[1]);
             cameraCoeff.convertTo(cameraCoeff, CvType.CV_64F);
 
             Mat undistort = new Mat();
@@ -187,6 +199,82 @@ public class YourService extends KiboRpcService {
                     if (predictedClass != "crystal" && predictedClass != "diamond" && predictedClass != "emerald") {
                         landmarkCount++;
                         api.setAreaInfo(callpreimg, predictedClass, landmarkCount);
+                    } else {
+                        if (callpreimg < 5) {
+                            double MARKER_SIZE = 0.045;
+                            List<double[]> positions = new ArrayList<>();
+                            Dictionary dictionary = Aruco.getPredefinedDictionary(Aruco.DICT_5X5_250);
+                            MatOfInt ids = new MatOfInt();
+                            List<Mat> corners = new ArrayList<>();
+                            DetectorParameters parameters = DetectorParameters.create();
+                            Aruco.detectMarkers(undistort, dictionary, corners, ids, parameters);
+                            // Pose estimation
+                            Mat rvecs = new Mat();
+                            Mat tvecs = new Mat();
+
+                            try {
+                                Aruco.estimatePoseSingleMarkers(corners, (float) MARKER_SIZE, cameraM, cameraCoeff, rvecs, tvecs);
+                                Log.i(TAG, "Pose estimation completed");
+                                Log.i(TAG, "rvecs size: " + rvecs.rows() + "x" + rvecs.cols());
+                                Log.i(TAG, "tvecs size: " + tvecs.rows() + "x" + tvecs.cols());
+                            } catch (Exception e) {
+                                Log.e(TAG, "Error in pose estimation: " + e.getMessage());
+                            }
+
+                            double[] robotPos = new double[]{0.0, 0.0, 0.0}; // Default initialization
+                            try {
+                                Kinematics k = api.getRobotKinematics();
+                                Point robotPoint = k.getPosition();
+                                robotPos = new double[]{robotPoint.getX(), robotPoint.getY(), robotPoint.getZ()};
+                                Log.i(TAG, "Robot position: [" + robotPos[0] + ", " + robotPos[1] + ", " + robotPos[2] + "]");
+                            } catch (Exception e) {
+                                Log.e(TAG, "Error getting robot position: " + e.getMessage());
+                                // robotPos will use default values [0.0, 0.0, 0.0]
+                            }
+
+
+                            double[] tvec = tvecs.get(0, 0);
+                            Log.i(TAG, "tvec position: [" + tvec[0] + ", " + tvec[1] + ", " + tvec[2] + "]");
+                            double[] targetInCamera = new double[3];
+                            if (callpreimg == 1){
+                                targetInCamera[0] = tvec[0] + robotPos[0];
+                                targetInCamera[1] = -9.88d;
+                                targetInCamera[2] = robotPos[2] + tvec[1];
+                                quaternionTarget.add(new float[]{0.0f, 0.0f, -0.707f, 0.707f});
+                            } else if (callpreimg == 2 || callpreimg == 3) {
+                                targetInCamera[0] = robotPos[0] + tvec[1];
+                                targetInCamera[1] = robotPos[1] + tvec[0];
+                                targetInCamera[2] = 4.46203d;
+                                quaternionTarget.add(new float[]{0.0f, 0.707f, 0.0f, 0.707f});
+                            } else if (callpreimg == 4) {
+                                targetInCamera[0] = 10.566984d;
+                                targetInCamera[1] = robotPos[1] + tvec[1];
+                                targetInCamera[2] = robotPos[2] + tvec[0];
+                                quaternionTarget.add(new float[]{-0.707f, 0.0f, 0.0f, 0.707f});
+                            }
+                            pointTarget.add(new double[]{targetInCamera[0], targetInCamera[1], targetInCamera[2]});
+                            EachTarget.add(predictedClass);
+                            Log.i(TAG, "Target point in robot coordinates (constrained to KIZ 1): [" + targetInCamera[0] + ", " + targetInCamera[1] + ", " + targetInCamera[2] + "]");
+                        } else {
+                            int indexTarget = -1;
+                            for (int j = 0; j < EachTarget.size(); j++) {
+                                if (predictedClass == EachTarget.get(j)) {
+                                    indexTarget = j;
+                                    api.notifyRecognitionItem();
+                                    break;
+                                }
+                            }
+                            Point point = new Point(pointTarget.get(indexTarget)[0], pointTarget.get(indexTarget)[1], pointTarget.get(indexTarget)[2]);
+                            Quaternion quaternion = new Quaternion(quaternionTarget.get(indexTarget)[0], quaternionTarget.get(indexTarget)[1], quaternionTarget.get(indexTarget)[2], quaternionTarget.get(indexTarget)[3]);
+                            Result result = api.moveTo(point, quaternion, false);
+                            int loopCounter = 0;
+                            while (!result.hasSucceeded() && loopCounter < 3) {
+                                result = api.moveTo(point, quaternion, false);
+                                loopCounter++;
+                            }
+                            api.takeTargetItemSnapshot();
+                            break;
+                        }
                     }
                 }
             }
@@ -209,7 +297,7 @@ public class YourService extends KiboRpcService {
 
             // Create and configure interpreter options
             Interpreter.Options options = new Interpreter.Options();
-            options.setNumThreads(4); // Optional: set number of threads
+//            options.setNumThreads(4); // Optional: set number of threads
 
             // Initialize the interpreter
             tfliteInterpreter = new Interpreter(tfliteModel, options);
@@ -511,7 +599,7 @@ public class YourService extends KiboRpcService {
 
             for (MatOfPoint contour : contours) {
                 double area = Imgproc.contourArea(contour);
-                if (area > 1000) { // Minimum area threshold
+                if (area > 1000 && area < 45000) { // Minimum area threshold
                     MatOfPoint2f contour2f = new MatOfPoint2f();
                     contour.convertTo(contour2f, CvType.CV_32FC2);
 
@@ -551,7 +639,7 @@ public class YourService extends KiboRpcService {
 
             for (MatOfPoint contour : contours) {
                 double area = Imgproc.contourArea(contour);
-                if (area > 1000) {
+                if (area > 1000 && area < 45000) {
                     MatOfPoint2f contour2f = new MatOfPoint2f();
                     contour.convertTo(contour2f, CvType.CV_32FC2);
 
@@ -878,95 +966,9 @@ public class YourService extends KiboRpcService {
         }
     }
 
-//    private static List<Mat> cropObjects(Mat image) {
-//        // Convert to grayscale (check if already grayscale)
-//        Mat gray = new Mat();
-//        if (image.channels() == 3) {
-//            Imgproc.cvtColor(image, gray, Imgproc.COLOR_BGR2GRAY);
-//        } else if (image.channels() == 4) {
-//            Imgproc.cvtColor(image, gray, Imgproc.COLOR_BGRA2GRAY);
-//        } else {
-//            // Image is already grayscale
-//            gray = image.clone();
-//        }
-//
-//        // Apply Gaussian blur to reduce noise
-//        Mat blur = new Mat();
-//        Imgproc.GaussianBlur(gray, blur, new Size(5, 5), 0);
-//
-//        // Increase contrast
-//        Mat imageContrast = new Mat();
-//        double alpha = 1.8; // Contrast control (1.0-3.0)
-//        double beta = 0;    // Brightness control (changed from int to double)
-//        gray.convertTo(imageContrast, CvType.CV_8UC1, alpha, beta);
-//
-//        // Adaptive thresholding
-//        Mat thresh = new Mat();
-//        Imgproc.adaptiveThreshold(imageContrast, thresh, 255,
-//                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-//                Imgproc.THRESH_BINARY_INV, 15, 5);
-//
-//        // Find contours
-//        List<MatOfPoint> contours = new ArrayList<>();
-//        Mat hierarchy = new Mat();
-//        Imgproc.findContours(thresh, contours, hierarchy,
-//                Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
-//
-//        // List to store cropped images
-//        List<Mat> croppedImages = new ArrayList<>();
-//
-//        // Crop each contour with square aspect ratio
-//        for (int i = 0; i < contours.size(); i++) {
-//            MatOfPoint contour = contours.get(i);
-//
-//            double area = Imgproc.contourArea(contour);
-//            if (area > 12) { // Only minimum area filter, no maximum
-//                Rect boundingRect = Imgproc.boundingRect(contour);
-//                int x = boundingRect.x;
-//                int y = boundingRect.y;
-//                int w = boundingRect.width;
-//                int h = boundingRect.height;
-//
-//                // Determine the size of the square
-//                int sideLength = Math.max(w, h);
-//                int padding = 5;
-//
-//                // Center the square around the original bounding box
-//                int centerX = x + w / 2;
-//                int centerY = y + h / 2;
-//
-//                // Calculate new square bounds
-//                int xNew = Math.max(0, centerX - sideLength / 2 - padding);
-//                int yNew = Math.max(0, centerY - sideLength / 2 - padding);
-//                int side = sideLength + 2 * padding;
-//
-//                // Ensure the square crop doesn't exceed image boundaries
-//                xNew = Math.min(xNew, image.cols() - side);
-//                yNew = Math.min(yNew, image.rows() - side);
-//
-//                // Ensure valid dimensions
-//                if (xNew >= 0 && yNew >= 0 && xNew + side <= image.cols() && yNew + side <= image.rows() && side > 0) {
-//                    // Crop and store the square image
-//                    Rect cropRect = new Rect(xNew, yNew, side, side);
-//                    Mat croppedImage = new Mat(image, cropRect);
-//                    croppedImages.add(croppedImage.clone()); // Clone to avoid reference issues
-//                }
-//            }
-//        }
-//
-//        // Clean up temporary matrices
-//        gray.release();
-//        blur.release();
-//        imageContrast.release();
-//        thresh.release();
-//        hierarchy.release();
-//
-//        return croppedImages;
-//    }
-
     // new vesion for crop image function
-    public static List<Mat> cropObjects(Mat image) {
-        // Convert to grayscale (check if already grayscale)
+    public List<Mat> cropObjects(Mat image) {
+        // Convert to grayscale if necessary
         Mat gray = new Mat();
         if (image.channels() == 3) {
             Imgproc.cvtColor(image, gray, Imgproc.COLOR_BGR2GRAY);
@@ -976,78 +978,74 @@ public class YourService extends KiboRpcService {
             gray = image.clone();
         }
 
-        // Apply Gaussian blur to reduce noise
+        // Apply denoising to reduce noise - UPDATED PARAMETERS
+        try {
+            Photo.fastNlMeansDenoising(gray, gray, 7.0f, 7, 21); // Changed from 10.0f to 7.0f
+        } catch (Exception e) {
+            Imgproc.bilateralFilter(gray, gray, 5, 25, 25); // Changed from (7, 50, 50) to (5, 25, 25)
+        }
+
+        // Apply Gaussian blur to further smooth noise - UPDATED KERNEL SIZE
         Mat blur = new Mat();
-        Imgproc.GaussianBlur(gray, blur, new Size(5, 5), 0);
+        Imgproc.GaussianBlur(gray, blur, new Size(5, 5), 0); // Changed from (7, 7) to (5, 5)
 
-        // Increase contrast
-        Mat imageContrast = new Mat();
-        double alpha = 1.8; // Contrast control
-        double beta = 0;    // Brightness control
-        gray.convertTo(imageContrast, CvType.CV_8UC1, alpha, beta);
+        // Apply CLAHE for better contrast - UPDATED PARAMETERS
+        CLAHE clahe = Imgproc.createCLAHE();
+        clahe.setClipLimit(2.0); // Changed from 1.0 to 2.0
+        clahe.setTilesGridSize(new Size(4, 4)); // Changed from (8, 8) to (4, 4)
+        Mat grayClahe = new Mat();
+        clahe.apply(blur, grayClahe);
 
-        // Adaptive thresholding
+        // Adaptive thresholding with adjusted parameters - UPDATED PARAMETERS
         Mat thresh = new Mat();
-        Imgproc.adaptiveThreshold(imageContrast, thresh, 255,
+        Imgproc.adaptiveThreshold(
+                grayClahe, thresh, 255,
                 Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-                Imgproc.THRESH_BINARY_INV, 15, 5);
+                Imgproc.THRESH_BINARY_INV,
+                7, 4 // Changed from (21, 10) to (11, 5)
+        );
+
+        // Morphological operations to remove noise and close gaps - UPDATED ORDER
+        Mat kernel = Mat.ones(3, 3, CvType.CV_8U);
+        Mat morph = new Mat();
+        // Changed order: CLOSE first, then OPEN, and updated iterations
+        Imgproc.morphologyEx(thresh, morph, Imgproc.MORPH_CLOSE, kernel, new org.opencv.core.Point(-1, -1), 2);
+        Imgproc.morphologyEx(morph, thresh, Imgproc.MORPH_OPEN, kernel, new org.opencv.core.Point(-1, -1), 1);
+
+        // Save intermediate threshold image for debugging
+        api.saveMatImage(thresh, callpreimg + "thresh_debug.png");
 
         // Find contours
         List<MatOfPoint> contours = new ArrayList<>();
         Mat hierarchy = new Mat();
-        Imgproc.findContours(thresh, contours, hierarchy,
-                Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+        Imgproc.findContours(thresh, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
 
-        // List to store cropped images
         List<Mat> croppedImages = new ArrayList<>();
 
-        // Crop each contour with square aspect ratio
-        for (int i = 0; i < contours.size(); i++) {
-            MatOfPoint contour = contours.get(i);
-
+        for (MatOfPoint contour : contours) {
             double area = Imgproc.contourArea(contour);
-            if (area > 12) {
-                Rect boundingRect = Imgproc.boundingRect(contour);
-                int x = boundingRect.x;
-                int y = boundingRect.y;
-                int w = boundingRect.width;
-                int h = boundingRect.height;
+            if (area > 30) {
+                Rect rect = Imgproc.boundingRect(contour);
+                double aspectRatio = (double) rect.width / rect.height;
+                double perimeter = Imgproc.arcLength(new MatOfPoint2f(contour.toArray()), true);
 
-                // Determine the size of the square based on the larger dimension
-                int sideLength = Math.max(w, h);
-                int padding = 5;
+                // UPDATED THRESHOLDS to match Python version
+                if (aspectRatio > 0.2 && aspectRatio < 4.0 && perimeter > 20) { // Changed from (0.3, 3.0, 30) to (0.2, 4.0, 20)
+                    int xNew = Math.max(0, rect.x - 5); // Add padding
+                    int yNew = Math.max(0, rect.y - 5);
+                    int width = Math.min(image.cols() - xNew, rect.width + 10); // Ensure within bounds
+                    int height = Math.min(image.rows() - yNew, rect.height + 10);
 
-                // Center the square around the original bounding box
-                int centerX = x + w / 2;
-                int centerY = y + h / 2;
-
-                // Calculate new square bounds with padding
-                int xNew = Math.max(0, centerX - sideLength / 2 - padding);
-                int yNew = Math.max(0, centerY - sideLength / 2 - padding);
-                int side = sideLength + 2 * padding;
-
-                // Adjust bounds to stay within image dimensions
-                xNew = Math.min(xNew, image.cols() - side);
-                yNew = Math.min(yNew, image.rows() - side);
-
-                // Ensure valid crop rectangle
-                if (xNew >= 0 && yNew >= 0 && xNew + side <= image.cols() && yNew + side <= image.rows() && side > 0) {
-                    Rect cropRect = new Rect(xNew, yNew, side, side);
-                    Mat croppedImage = new Mat(image, cropRect);
-                    croppedImages.add(croppedImage.clone());
+                    if (width > 0 && height > 0) {
+                        Mat cropRect = image.submat(yNew, yNew + height, xNew, xNew + width);
+                        croppedImages.add(cropRect.clone());
+                    }
                 }
             }
         }
-
-        // Clean up temporary matrices
-        gray.release();
-        blur.release();
-        imageContrast.release();
-        thresh.release();
-        hierarchy.release();
-
         return croppedImages;
     }
+
     private static Mat ManualA4Cropper(Mat undistort, Mat cameraM) {
         // Use zero distortion since image is already undistorted
         MatOfDouble zeroDist = new MatOfDouble(0, 0, 0, 0);
