@@ -96,7 +96,7 @@ public class YourService extends KiboRpcService {
         callpreimg++;
 
         // Area 3
-        Point pointArea3 = new Point(10.925, -7.445d, 4.52d);  // Midpoint y = (−8.4 + −7.45) / 2
+        Point pointArea3 = new Point(10.985, -7.445d, 4.52d);  // Midpoint y = (−8.4 + −7.45) / 2
         Quaternion quaternionArea3 = new Quaternion(0f, 0.707f, 0f, 0.707f);// Assuming same orientation
         api.moveTo(pointArea3, quaternionArea3, false);
         loopCounter = 0;
@@ -129,13 +129,20 @@ public class YourService extends KiboRpcService {
         quaternion = new Quaternion(0f, 0f, 0.707f, 0.707f);
         api.moveTo(point, quaternion, false);
         api.reportRoundingCompletion();
-        try {
-            Thread.sleep(1700); // Pauses the current thread
-        } catch (InterruptedException e) {
-            // Handle the exception if the thread is interrupted while sleeping
-            Thread.currentThread().interrupt(); // Re-interrupt the current thread
-        }
+        DocumentScanner scanner = new DocumentScanner();
+        loopCounter = 0;
         image = api.getMatNavCam();
+        while (!scanner.detectAruco(image) && loopCounter < 30) {
+            loopCounter++;
+            try {
+                Thread.sleep(100); // Pauses the current thread
+            } catch (InterruptedException e) {
+                // Handle the exception if the thread is interrupted while sleeping
+                Thread.currentThread().interrupt(); // Re-interrupt the current thread
+            }
+            image = api.getMatNavCam();
+        }
+        Log.i(TAG, "Use time: " + (loopCounter * 100) + " ms");
         result = image_processor.process(image, callpreimg);
     }
 
@@ -250,7 +257,7 @@ public class YourService extends KiboRpcService {
                                 targetInCamera[0] = 10.566984d;
                                 targetInCamera[1] = robotPos[1] + tvec[1];
                                 targetInCamera[2] = robotPos[2] + tvec[0];
-                                quaternionTarget.add(new float[]{-0.707f, 0.0f, 0.0f, 0.707f});
+                                quaternionTarget.add(new float[]{0.0f, 0.0f, 1.0f, 0.0f});
                             }
                             pointTarget.add(new double[]{targetInCamera[0], targetInCamera[1], targetInCamera[2]});
                             EachTarget.add(predictedClass);
@@ -268,11 +275,13 @@ public class YourService extends KiboRpcService {
                             Quaternion quaternion = new Quaternion(quaternionTarget.get(indexTarget)[0], quaternionTarget.get(indexTarget)[1], quaternionTarget.get(indexTarget)[2], quaternionTarget.get(indexTarget)[3]);
                             Result result = api.moveTo(point, quaternion, false);
                             int loopCounter = 0;
-                            while (!result.hasSucceeded() && loopCounter < 3) {
+                            while (!result.hasSucceeded() && loopCounter < 5) {
                                 result = api.moveTo(point, quaternion, false);
                                 loopCounter++;
                             }
                             api.takeTargetItemSnapshot();
+                            Mat image = api.getMatNavCam();
+                            api.saveMatImage(image, "6last.png");
                             break;
                         }
                     }
